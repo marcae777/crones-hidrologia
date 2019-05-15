@@ -51,7 +51,7 @@ def logger(orig_func):
     import logging
     from functools import wraps
     import time
-    logging.basicConfig(filename = 'acumRad_3h.log',level=logging.INFO)
+    logging.basicConfig(filename = '/media/nicolas/Home/Jupyter/Soraya/logs_crones/acumRad_3h.log',level=logging.INFO)
     @wraps(orig_func)
     def wrapper(*args,**kwargs):
         start = time.time()
