@@ -9,8 +9,6 @@ import pylab as plt
 import json
 import MySQLdb
 import csv
-import matplotlib
-import matplotlib.font_manager
 from datetime import timedelta
 import datetime
 import datetime as dt
@@ -23,7 +21,8 @@ from mpl_toolkits.basemap import Basemap
 import netCDF4
 
 ##### cambio de fuente
-import matplotlib 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.font_manager as fm
 import matplotlib
 import matplotlib.dates as mdates
@@ -257,10 +256,10 @@ Paleta = {'c1':'#fde725',
 #--------------------
 #paletas
 
-def get_colors(cmap,listc_size):    
-    from pylab import *
+def get_colors(cmapname='jet',listc_size=10):    
+    from pylab import cm
 
-    cmap = cm.get_cmap('jet', 15)    # PiYG
+    cmap = cm.get_cmap(cmapname, listc_size)    # PiYG
 
     colorbar=[]
 
