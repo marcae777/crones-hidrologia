@@ -470,8 +470,8 @@ def plotEv_Pacum_hydrograph(MapAcumDf,dfQevs,dfPevs,i,e,vmin=0,vmax=80.0): # cam
 ################################################################RADAR.###############################
 
 
-def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrain_ALL=True,save_bin=False,path_res=None,
-                   umbral=0.005,rutaNC='/media/nicolas/Home/nicolas/101_RadarClass/'):
+def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,all_radextent=False,meanrain_ALL=True,save_bin=False,
+                   path_res=None,umbral=0.005,rutaNC='/media/nicolas/Home/nicolas/101_RadarClass/'):
  
     '''
     Read .nc's file forn rutaNC:101Radar_Class within assigned period and frequency.
@@ -496,6 +496,9 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
     ----------
     accum:        boolean, default False. True for getting the accumulated matrix between start and end.
                   Change returns: df,rvec (accumulated)
+    path_tif:     string, path of tif to write accumlated basin map. Default None.
+    all_radextent:boolean, default False. True for getting the accumulated matrix between start and end in the
+                  whole radar extent. Change returns: df,radmatrix.
     meanrain_ALL: boolean, defaul True. True for getting the mean radar rainfall within several basins which mask are defined in 'codigos'.
     save_bin:     boolean, default False. True for saving .bin and .hdr files with rainfall and if len('codigos')=1.
     path_res:     string with path where to write results if save_bin=True, default None.
@@ -505,6 +508,7 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
     ----------
     - df whith meanrainfall of assiged codes in 'codigos'.
     - df,rvec if accum = True.
+    - df,radmatrix if all_radextent = True.
     - save .bin and .hdr if save_bin = True, len('codigos')=1 and path_res=path.
     
     '''
@@ -573,11 +577,16 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
     rng= pd.date_range(start,end, freq=  textdt+'s')
     df = pd.DataFrame(index = rng,columns=codigos)
     
+    #accumulated in basin
     if accum:
         rvec_accum = np.zeros(cu.ncells)
         rvec = np.zeros(cu.ncells)
     else:
         pass
+    
+    #all extent
+    if all_radextent:
+        radmatrix = np.zeros((1728, 1728))
     
     for dates,pos in zip(datesDt[1:],PosDates):
             rvec = np.zeros(cu.ncells)        
@@ -586,10 +595,13 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
                     for c,p in enumerate(pos):
                             #Lee la imagen de radar para esa fecha
                             g = netCDF4.Dataset(ListRutas[p])
+                            #if all extent
+                            if all_radextent:
+                                radmatrix += g.variables['Rain'][:].T/((3600/Dt)*1000.0) 
+                            #on basins --> wmf.
                             RadProp = [g.ncols, g.nrows, g.xll, g.yll, g.dx, g.dx]
                             #Agrega la lluvia en el intervalo 
-                            rvec += cu.Transform_Map2Basin(g.variables['Rain'][:].T/ ((3600/Dt)*1000.0),RadProp)#(Dt/(len(paths)*60)*1000.0)
-#                             rvec = rvec_accum.copy()
+                            rvec += cu.Transform_Map2Basin(g.variables['Rain'][:].T/ ((3600/Dt)*1000.0),RadProp)
                             #Cierra el netCDF
                             g.close()
             except:
@@ -598,7 +610,9 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
                         rvec_accum += np.zeros(cu.ncells)
                         rvec = np.zeros(cu.ncells)
                     else:
-                        rvec = np.zeros(cu.ncells)  
+                        rvec = np.zeros(cu.ncells) 
+                    if all_radextent:
+                        radmatrix += np.zeros((1728, 1728))
             #acumula dentro del for que recorre las fechas
             if accum:
                 rvec_accum += rvec
@@ -607,6 +621,7 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
             # si se quiere sacar promedios de lluvia de radar en varias cuencas definidas en 'codigos'
             if meanrain_ALL:
                 mean = []
+                #para todas
                 for codigo in codigos:
                     if 'mask_%s.tif'%(codigo) in os.listdir('/media/nicolas/maso/Mario/mask/'):
                         mask_path = '/media/nicolas/maso/Mario/mask/mask_%s.tif'%(codigo)
@@ -654,9 +669,10 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,meanrai
         return df,rvec_accum
     elif accum == True:
         return df,rvec_accum
+    elif all_radextent:
+        return df,radmatrix
     else:
-        return df
-    
+        return df    
 # just operational issues.
 def MeanHietogramRad_basins(start,end,rutaNC,Dt,cuenca,codigos):
     '''
@@ -768,7 +784,7 @@ def MeanHietogramRad_basins(start,end,rutaNC,Dt,cuenca,codigos):
     return df
 
 ############################### plot radar - FROM CPR
-def radar_cmap(window_t):
+def radar_cmap(window_t,idlcolors=False):
     '''
     Parameters
     ----------
@@ -778,15 +794,32 @@ def radar_cmap(window_t):
    
     '''
     import matplotlib.colors as colors
+        
+    if idlcolors == False:
+        bar_colors=[(255, 255, 255),(0, 255, 255), (0, 0, 255),(70, 220, 45),(44, 141, 29),(255,255,75),(255,142,0),(255,0,0),(128,0,128),(102,0,102),(255, 153, 255)]
+        if pd.Timedelta(window_t) < pd.Timedelta('7 days'):
+            #WEEKLY,3h,EVENT.
+            lev = np.array([0.,1.,5.,10.,20.,30.,45.,60., 80., 100., 150.])
+        if pd.Timedelta(window_t) > pd.Timedelta('7 days'):
+            #MONTHLY
+            lev = np.array([1.,5.0,10.0,15.,20.0,25.0,30.0,40.0,50.,60.,70.0])*10.
     
-    if pd.Timedelta(window_t) < pd.Timedelta('7 days'):
-        #WEEKLY,3h,EVENT.
-        lev = np.array([0.,1.,5.,10.,20.,30.,45.,60., 80., 100., 150.])
-    if pd.Timedelta(window_t) > pd.Timedelta('7 days'):
-        #MONTHLY
-        lev = np.array([1.,5.0,10.0,15.,20.0,25.0,30.0,40.0,50.,60.,70.0])*10.
+    #IDL
+    elif pd.Timedelta(window_t) <= pd.Timedelta('3h'):
+        #coor para python
+        bar_colors = [[  0, 255, 255],[  0, 255, 255],[  0, 255, 255],[  0,   0, 255],[ 70, 220,  45],[ 44, 141,  29],[255, 255,  75],[255, 200,  50],[255, 142,   0],[255,   0,   0],[128,   0, 128],[255, 153, 255]]        
+        #original de juli en idl
+        #bar_colors = [[200, 200, 200],[  0,   0,   0],[  0, 255, 255],[  0,   0, 255],[ 70, 220,  45],[ 44, 141,  29],[255, 255,  75],[255, 200,  50],[255, 142,   0],[255,   0,   0],[128,   0, 128],[255, 153, 255]]
+        #3h
+        lev  = np.array([0.2,1,2,4,6,8,10,13,16,20,24,30])*5.
+    elif pd.Timedelta(window_t) > pd.Timedelta('3h'):
+        #coor para python
+        bar_colors = [[  0, 255, 255],[  0, 255, 255],[  0, 255, 255],[  0,   0, 255],[ 70, 220,  45],[ 44, 141,  29],[255, 255,  75],[255, 200,  50],[255, 142,   0],[255,   0,   0],[128,   0, 128],[255, 153, 255]]        
+        #original de juli en idl
+        #bar_colors = [[200, 200, 200],[  0,   0,   0],[  0, 255, 255],[  0,   0, 255],[ 70, 220,  45],[ 44, 141,  29],[255, 255,  75],[255, 200,  50],[255, 142,   0],[255,   0,   0],[128,   0, 128],[255, 153, 255]]
+        #WEEKLY
+        lev = np.array([0.2,1,4,7,10,13,16,20,25,30,35,50])*10.
     
-    bar_colors=[(255, 255, 255),(0, 255, 255), (0, 0, 255),(70, 220, 45),(44, 141, 29),(255,255,75),(255,142,0),(255,0,0),(128,0,128),(102,0,102),(255, 153, 255)]
     scale_factor =  ((255-0.)/(lev.max() - lev.min()))
     new_Limits = list(np.array(np.round((lev-lev.min())*scale_factor/255.,3),dtype = float))
     Custom_Color = list(map(lambda x: tuple(ti/255. for ti in x) , bar_colors))
@@ -794,7 +827,7 @@ def radar_cmap(window_t):
     cmap_radar =colors.LinearSegmentedColormap.from_list('RADAR',nueva_tupla)
     levels_nuevos = np.linspace(np.min(lev),np.max(lev),255)
     norm_new_radar = colors.BoundaryNorm(boundaries=levels_nuevos, ncolors=256)
-    return cmap_radar,levels_nuevos,norm_new_radar
+    return cmap_radar,list(levels_nuevos),norm_new_radar
 
 def longitude_latitude_basin(self):
     '''
@@ -901,6 +934,123 @@ def plot_basin_rain(cu,vec,codigo,window_t='5 days',cbar=None,ax=None,**kwargs):
         pass
     return mapa
 
+def plot_allradarextent(rad2plot,window_t,idlcolors=False,path_figure=None,extrapol_axislims=False):
+    '''
+    Plot the whole radar matrix for web page.
+    Parameters:
+    ----------
+    - rad2plot:      matrix.
+    - path_figure:   string, path whete to save figure. Default None.
+    Returns:
+    ----------
+    - None
+    '''
+    cmap_radar,levels,norm = radar_cmap(window_t,idlcolors=idlcolors)
+    rad2plot[rad2plot == 0 ]=np.nan
+
+    #plot
+    fig = pl.figure(figsize=(15,15))
+    ax = fig.add_subplot(111)
+    ims = ax.imshow(rad2plot,cmap=cmap_radar)
+    ims.axes.get_xaxis().set_visible(False)
+    ims.axes.get_yaxis().set_visible(False)
+    ax.set_axis_off()
+    ax.set_ylabel('y')
+    #obs.
+    if extrapol_axislims:
+        #extrapol
+        ax.set_xlim(140,1580)
+        ax.set_ylim(1580,120)
+    else:
+        #obs.
+        ax.set_xlim(140,1580)
+        ax.set_ylim(1585,145)
+
+    if path_figure is not None:
+        pl.savefig(path_figure,bbox_inches='tight',dpi=100, transparent=True)
+
+def plot_extrapol(idlcolors=False):
+    # inputs acumula radar
+
+    Dt=300.
+    nc_basin= '/media/nicolas/maso/Mario/basins/260.nc'
+    codigos = [260]
+    accum=False;path_tif=None;meanrain_ALL=True;save_bin=False;path_res=None,
+    umbral=0.005;rutaNC='/media/nicolas/Home/nicolas/101_RadarClass/'
+    path_figs= '/media/nicolas/Home/Jupyter/Soraya/Op_Alarmas/Result_to_web/operacional/acum_radar/'
+    
+    starts = [round_time(dt.datetime.now()) - pd.Timedelta('3h'),round_time(dt.datetime.now()) ]
+    ends = [round_time(dt.datetime.now()), round_time(dt.datetime.now()) + pd.Timedelta('30m')]
+    figsnames = ['30minbefore_allradarextent','30minahead_allradarextent']
+    
+    for start,end,figname in zip(starts,ends,figsnames):
+        # Acumula radar.
+        dflol,radmatrix = get_radar_rain(start,end,Dt,nc_basin,codigos,all_radextent=True)
+        # inputs fig
+        path_figure =  path_figs+figname+'.png'
+        rad2plot = radmatrix.T
+        window_t='30m'
+        #fig
+        plot_allradarextent(rad2plot,window_t,idlcolors=idlcolors,path_figure=path_figure,extrapol_axislims=True)
+        
+def plot_acum_radar(windows_t,cbar=False,title=False):
+    
+    #DEFINICION DE COSAS
+    rutafig= '/media/nicolas/Home/Jupyter/Soraya/Op_Alarmas/Result_to_web/operacional/acum_radar/prueba/'
+    selfN = cprv1.Nivel(codigo=260,user='sample_user',passwd='s@mple_p@ss',SimuBasin=True)
+    codigos= selfN.infost.index[:]
+    #setting the est indexes and order.
+    pos_1st= [51,36,37,40,54,64]
+    codigos = np.delete(codigos,pos_1st)
+    codigos = np.insert(codigos,0,260)
+
+    #PLOTS
+    for window_t in windows_t[:2]:
+        if window_t == '30m_ahead':
+            start = pd.to_datetime('2019-05-09 22:00')
+#             start= fs.round_time(dt.datetime.now())
+            end = start + pd.Timedelta('30m')
+        else:
+            end = pd.to_datetime('2019-05-09 22:00')
+#             end = fs.round_time(dt.datetime.now())
+            start= end -  pd.Timedelta(window_t)
+    
+        path_basins= '/media/nicolas/maso/Mario/basins/'
+        
+        #acumulado para la cuenca mas grande
+        path_radtif = '/media/nicolas/maso/Soraya/op_files/radar/tifs/260-'+window_t+'.tif'
+        #solo guarda promedios por cuenca en algunas ventanas de tiempo
+        if window_t in ['30m_ahead','3h','24h']:
+            dfAll,rvec = fs.get_radar_rain(start,end,300.,path_basins+'%s.nc'%(260),codigos,accum=True,
+                                path_tif = path_radtif,#+start.strftime('%Y%m%d%H%M')+'_'+start.strftime('%Y%m%d%H%M')+'.tif',
+                                meanrain_ALL=True)
+            #guarda csv
+            dfAll.to_csv(rutafig+window_t+'/dfAcum'+window_t+'.csv')
+        else:
+            dfAll,rvec = fs.get_radar_rain(start,end,300.,path_basins+'%s.nc'%(260),codigos,accum=True,
+                                path_tif = path_radtif,
+                                meanrain_ALL=False)
+        
+        #plots
+        for codigo in codigos[0:]:
+            if '%s.nc'%(codigo) in os.listdir(path_basins):
+                cu = wmf.SimuBasin(rute=path_basins+'%s.nc'%(codigo))
+                a,b = wmf.read_map_raster(path_radtif)
+                vec_rain = cu.Transform_Map2Basin(a,b)
+                #Plot
+                fig = pl.figure(figsize=(10,12))
+                ax = fig.add_subplot(111)
+                ax.set_axis_off()
+                if window_t == '30m_ahead':
+                    fs.plot_basin_rain(cu,vec_rain,codigo,window_t='30m',ax=ax,cbar=cbar)
+                else:
+                    fs.plot_basin_rain(cu,vec_rain,codigo,window_t=window_t,ax=ax,cbar=cbar)
+                if title:
+                    ax.set_title('Est. ' +str(codigo) +' | '+ selfN.infost.loc[codigo].nombre +'\n'+pd.to_datetime(start).strftime('%Y%m%d%H%M')+'-'+pd.to_datetime(end).strftime('%Y%m%d%H%M'))
+                pl.savefig(rutafig+window_t+'/'+selfN.infost.loc[codigo].slug+'.png',bbox_inches='tight')
+    
+    return dfAll,rvec
+        
 ####################### traza cuencas
 
 
