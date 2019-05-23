@@ -2,8 +2,8 @@
 
 date
 appdir=`dirname $0`
-logfile=$appdir/acumRad_3h.log
-lockfile=$appdir/acumRad_3h.lck
+logfile=$appdir/media/nicolas/Home/Jupyter/Soraya/logs_crones/acumRad_3h.log
+lockfile=$appdir/media/nicolas/Home/Jupyter/Soraya/logs_crones/acumRad_3h.lck
 pid=$$
 
 echo $appdir
