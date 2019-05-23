@@ -390,7 +390,7 @@ def RainAcum_Evs(cu,eventos,Rainpaths,column,window,poshalo):
         DictRain = wmf.read_rain_struct(ruta_hdr)
         R = DictRain[u' Record']
         pos=R[date-pd.Timedelta(window):date+pd.Timedelta(window)].values
-        pos = pos[pos <>1]
+        pos = pos[pos !=1]
         Vsum = np.zeros(cu.ncells)
         for p in pos:
             #se acumula la lluvia de la cuenca
@@ -440,7 +440,7 @@ def hietograms_filtered(Evs,window,Pmean):
         except:
             evs_inlist.append(Pmean[ini:fin])
             evs_in.append(i)
-    print str(c) + 'events out!'
+    print (str(c) + 'events out!')
     #array fechas out, fechas in
     evs_out=np.array(evs_out); evs_in=np.array(evs_in)
     #dfeventos
@@ -596,11 +596,11 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,all_rad
                             g = netCDF4.Dataset(ListRutas[p])
                             #if all extent
                             if all_radextent:
-                                radmatrix += g.variables['Rain'][:].T/((3600/Dt)*1000.0) 
+                                radmatrix += g.variables['Rain'][:].T/(((len(pos)*3600)/Dt)*1000.0) 
                             #on basins --> wmf.
                             RadProp = [g.ncols, g.nrows, g.xll, g.yll, g.dx, g.dx]
                             #Agrega la lluvia en el intervalo 
-                            rvec += cu.Transform_Map2Basin(g.variables['Rain'][:].T/ ((3600/Dt)*1000.0),RadProp)
+                            rvec += cu.Transform_Map2Basin(g.variables['Rain'][:].T/(((len(pos)*3600)/Dt)*1000.0),RadProp)
                             #Cierra el netCDF
                             g.close()
             except:
@@ -672,115 +672,6 @@ def get_radar_rain(start,end,Dt,cuenca,codigos,accum=False,path_tif=None,all_rad
         return df,radmatrix
     else:
         return df    
-# just operational issues.
-def MeanHietogramRad_basins(start,end,rutaNC,Dt,cuenca,codigos):
-    '''
-    Lee .nc's en 101Radar_Class en el periodo y frecuencia indicados y saca el hietograma promedio por cuencas
-    siempre que hayan mascaras de estas. Divide por 1000 el campo de radar por dentro.
-    
-    '''
-    #hora UTC
-    startUTC,endUTC = start + pd.Timedelta('5 hours'), end + pd.Timedelta('5 hours')
-    fechaI,fechaF,hora_1,hora_2 = startUTC.strftime('%Y-%m-%d'), endUTC.strftime('%Y-%m-%d'),startUTC.strftime('%H:%M'),endUTC.strftime('%H:%M')
-    #Obtiene las fechas por dias
-    datesDias = pd.date_range(fechaI, fechaF,freq='D')
-
-    a = pd.Series(np.zeros(len(datesDias)),index=datesDias)
-    a = a.resample('A').sum()
-    Anos = [i.strftime('%Y') for i in a.index.to_pydatetime()]
-
-    datesDias = [d.strftime('%Y%m%d') for d in datesDias.to_pydatetime()]
-
-    ListDays = []
-    ListRutas = []
-    for d in datesDias:
-        try:
-            L = glob.glob(rutaNC + d + '*.nc')
-            ListRutas.extend(L)
-            for i in L:
-                if i[-11:].endswith('extrapol.nc'):
-                    ListDays.append(i[-32:-20])
-                else:
-                    ListDays.append(i[-23:-11])
-        except:
-            print 'mierda'
-    #Organiza las listas de dias y de rutas
-    ListDays.sort()
-    ListRutas.sort()
-    datesDias = [dt.datetime.strptime(d[:12],'%Y%m%d%H%M') for d in ListDays]
-    datesDias = pd.to_datetime(datesDias)
-    #Obtiene las fechas por Dt
-    textdt = '%d' % Dt
-    #Agrega hora a la fecha inicial
-    if hora_1 <> None:
-            inicio = fechaI+' '+hora_1
-    else:
-            inicio = fechaI
-    #agrega hora a la fecha final
-    if hora_2 <> None:
-            final = fechaF+' '+hora_2
-    else:
-            final = fechaF
-    datesDt = pd.date_range(inicio,final,freq = textdt+'s')
-
-    #Obtiene las posiciones de acuerdo al dt para cada fecha
-    PosDates = []
-    pos1 = [0]
-    for d1,d2 in zip(datesDt[:-1],datesDt[1:]):
-            pos2 = np.where((datesDias<d2) & (datesDias>=d1))[0].tolist()
-            if len(pos2) == 0:
-                    pos2 = pos1
-            else:
-                    pos1 = pos2
-            PosDates.append(pos2)
-
-    # acumular dentro de la cuenca.
-    cu = wmf.SimuBasin(rute= cuenca)
-    # hora local
-    datesDt = datesDt - dt.timedelta(hours=5)
-    datesDt = datesDt.to_pydatetime()
-    #Index de salida en hora local
-    rng= pd.date_range(start,end, freq=  textdt+'s')
-    df = pd.DataFrame(index = rng,columns=codigos)
-    
-#     meanM=[]
-
-    for dates,pos in zip(datesDt[1:],PosDates):
-            rvec = np.zeros(cu.ncells)
-            try:
-                    for c,p in enumerate(pos):
-                            #Lee la imagen de radar para esa fecha
-                            g = netCDF4.Dataset(ListRutas[p])
-    #                         print ListRutas[p]
-                            RadProp = [g.ncols, g.nrows, g.xll, g.yll, g.dx, g.dx]
-                            #Agrega la lluvia en el intervalo 
-                            rvec += cu.Transform_Map2Basin(g.variables['Rain'][:].T/ (12*1000.0),RadProp) #(len(paths)*60/(dt/60))*1000.0)
-                            #Cierra el netCDF
-                            g.close()
-            except Exception, e:
-                    print 'error - zero field '
-                    rvec = np.zeros(cu.ncells)
-            mean = []
-            
-#             meanM.append(rvec.mean())
-            
-            for codigo in codigos:
-                if 'mask_%s.tif'%(codigo) in os.listdir('/media/nicolas/maso/Mario/mask/'):
-                    mask_path = '/media/nicolas/maso/Mario/mask/mask_%s.tif'%(codigo)
-                    mask_map = wmf.read_map_raster(mask_path)
-                    mask_vect = cu.Transform_Map2Basin(mask_map[0],mask_map[1])
-                else:
-                    mask_vect = None
-                if mask_vect is not None:
-                #for date in rain_vect.index:
-                    try:
-                        mean.append(np.sum(mask_vect*rvec)/np.sum(mask_vect))
-                    except:
-                        mean.append(np.nan)
-                # se actualiza la media de todas las mascaras en el df.
-            df.loc[dates.strftime('%Y-%m-%d %H:%M:%S')]=mean  
-    
-    return df
 
 ############################### plot radar - FROM CPR
 def radar_cmap(window_t,idlcolors=False):
@@ -893,7 +784,7 @@ def basin_mappable(cu,vec=None, extra_long=0,extra_lat=0,perimeter_keys={},conto
         contour = None
     return m,contour
 
-def plot_basin_rain(cu,vec,codigo,window_t='5 days',cbar=None,ax=None,**kwargs):
+def plot_basin_rain(cu,vec,codigo,window_t='5 days',idlcolors=False,cbar=None,ax=None,**kwargs):
     '''
     Gets last topo-batimetry in db
     Parameters
@@ -906,7 +797,7 @@ def plot_basin_rain(cu,vec,codigo,window_t='5 days',cbar=None,ax=None,**kwargs):
     if ax is None:
         fig = plt.figure(figsize=(10,16))
         ax = fig.add_subplot()
-    cmap_radar,levels,norm = radar_cmap(window_t)
+    cmap_radar,levels,norm = radar_cmap(window_t,idlcolors=idlcolors)
     extra_lat,extra_long = adjust_basin(cu,fac=0.01)
     mapa,contour = basin_mappable(cu,
                                   vec,
